@@ -23,7 +23,6 @@ from bugbug.tools.base import GenerativeModelTool
 from bugbug.tools.code_review.data_types import (
     AgentResponse,
     CodeReviewToolResponse,
-    GeneratedReviewComment,
     Skill,
 )
 from bugbug.tools.code_review.database import ReviewCommentsDB
@@ -53,7 +52,11 @@ from bugbug.tools.core.exceptions import (
     LargeDiffError,
     RecursionLimitError,
 )
-from bugbug.tools.core.llms import DEFAULT_ANTHROPIC_MODEL, get_tokenizer
+from bugbug.tools.core.llms import (
+    DEFAULT_ANTHROPIC_MODEL,
+    get_tokenizer,
+    usage_from_messages,
+)
 from bugbug.tools.core.platforms.base import Patch
 
 logger = getLogger(__name__)
@@ -195,11 +198,15 @@ class CodeReviewTool(GenerativeModelTool):
         return len(self._tokenizer.encode(text))
 
     def generate_initial_prompt(
-        self, patch: Patch, patch_summary: str, external_context: str = ""
+        self,
+        patch: Patch,
+        patch_summary: str,
+        external_context: str = "",
+        test_signals_block: str | None = None,
     ) -> str:
         created_before = patch.date_created if self.is_experiment_env else None
 
-        return FIRST_MESSAGE_TEMPLATE.format(
+        prompt = FIRST_MESSAGE_TEMPLATE.format(
             patch=format_patch_set(patch.patch_set),
             patch_summarization=patch_summary,
             external_context=external_context,
@@ -207,9 +214,17 @@ class CodeReviewTool(GenerativeModelTool):
             approved_examples=self._get_generated_examples(patch, created_before),
         )
 
+        if test_signals_block:
+            prompt = f"{test_signals_block}\n\n{prompt}"
+
+        return prompt
+
     async def generate_review_comments(
-        self, patch: Patch, patch_summary: str
-    ) -> tuple[list[GeneratedReviewComment], list[dict]]:
+        self,
+        patch: Patch,
+        patch_summary: str,
+        test_signals_block: str | None = None,
+    ) -> tuple[dict, list[dict]]:
         external_context = ""
         manifest: list[dict] = []
         if self._review_context_repo:
@@ -231,7 +246,10 @@ class CodeReviewTool(GenerativeModelTool):
                     "messages": [
                         HumanMessage(
                             self.generate_initial_prompt(
-                                patch, patch_summary, external_context
+                                patch,
+                                patch_summary,
+                                external_context,
+                                test_signals_block,
                             )
                         ),
                     ]
@@ -244,18 +262,21 @@ class CodeReviewTool(GenerativeModelTool):
         except GraphRecursionError as e:
             raise RecursionLimitError("The model could not complete the review") from e
 
-        return result["structured_response"].comments, manifest
+        return result, manifest
 
-    async def run(self, patch: Patch) -> CodeReviewToolResponse:
+    async def run(
+        self, patch: Patch, test_signals_block: str | None = None
+    ) -> CodeReviewToolResponse:
         if self.count_tokens(patch.raw_diff) > 21000:
             raise LargeDiffError("The diff is too large")
 
         patch_summary = self.patch_summarizer.run(patch)
 
-        (
-            unfiltered_suggestions,
-            external_content_manifest,
-        ) = await self.generate_review_comments(patch, patch_summary)
+        result, external_content_manifest = await self.generate_review_comments(
+            patch, patch_summary, test_signals_block
+        )
+        messages = result.get("messages", [])
+        unfiltered_suggestions = result["structured_response"].comments
         if not unfiltered_suggestions:
             logger.info("No suggestions were generated")
 
@@ -272,6 +293,11 @@ class CodeReviewTool(GenerativeModelTool):
                 "model": self._agent_model_name,
                 "num_unfiltered_suggestions": len(unfiltered_suggestions),
                 "external_content": external_content_manifest,
+                "usage": usage_from_messages(messages),
+                "tool_calls": sum(
+                    len(getattr(message, "tool_calls", []) or [])
+                    for message in messages
+                ),
             },
         )
 
