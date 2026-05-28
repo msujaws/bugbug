@@ -1,14 +1,21 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from subprocess import check_output
 
 import sentry_sdk
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.config import settings
 from app.database.connection import close_db, init_db
-from app.routers import feedback_router, internal_router, request_router
+from app.routers import (
+    dashboard_router,
+    feedback_router,
+    internal_router,
+    request_router,
+)
 
 sentry_sdk.init(
     dsn=settings.sentry_dsn,
@@ -42,12 +49,24 @@ app = FastAPI(
 app.include_router(request_router)
 app.include_router(feedback_router)
 app.include_router(internal_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Cloud Run."""
     return {"message": "Service is healthy", "status": "ok"}
+
+
+# Serve the built dashboard SPA (web/dist) at /dashboard, if present. The build
+# is produced by `npm --prefix web run build` and is optional in development.
+_DASHBOARD_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _DASHBOARD_DIST.is_dir():
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=str(_DASHBOARD_DIST), html=True),
+        name="dashboard",
+    )
 
 
 if __name__ == "__main__":

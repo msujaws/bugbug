@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     scoring_model: str = "claude-haiku-4-5-20251001"
     scoring_max_tokens: int = 1024
 
+    # Bearer key guarding the dashboard's /api/* endpoints. Falls back to the
+    # external API key when unset.
+    dashboard_api_key: str = ""
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
