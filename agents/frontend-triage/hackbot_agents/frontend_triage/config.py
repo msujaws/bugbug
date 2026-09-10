@@ -720,15 +720,17 @@ TRIAGE_SCOPE = (
         "#fx-toolkit-general-triage-notifications",
         trees=("browser/",),
         notes=(
-            "**Not a component at all**: it is the default for a filing that named none, "
-            "so it says nothing about the area and everything on `Firefox :: General` "
-            "applies to it more strongly. One thing it adds is a race worth writing "
-            "around. bugbot's `component` rule moves low-confidence bugs out of here "
-            "into `Firefox :: General` hourly, and it runs in the same cron pass as the "
-            "rule that sends bugs here, so a bug may be reassigned between the run "
-            "starting and anyone reading the comment. Both components report to this "
-            "channel, so nothing is lost, but do not write a comment whose reasoning "
-            "depends on the bug still being Untriaged."
+            "**Not a component, and not a fresh filing either.** Everything on "
+            "`Firefox :: General` applies here more strongly, and one thing is specific "
+            "to it: a bug reaches you here only because somebody moved the component "
+            "back to Untriaged, which is what bugbot's rule requires. A bug filed into "
+            "Untriaged is one nobody has looked at yet, and bugbot's `component` rule "
+            "moves it straight out; a bug moved back has already defeated a human "
+            "triager and that rule's classifier, and the rule will not touch it again "
+            "because it skips bugs whose component it has already changed. So treat "
+            "naming a plausible component as the primary output, and say what makes it "
+            "hard to place, since the last person to look at it concluded it could not "
+            "be placed at all."
         ),
     ),
 )
